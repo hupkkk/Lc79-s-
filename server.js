@@ -1,125 +1,402 @@
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-
-// ==================== ULTRA DICE SYSTEM (PHIÊN BẢN ĐƠN GIẢN HOẠT ĐỘNG TỐT) ====================
-class UltraDicePredictionSystem {
-    constructor() {
-        this.history = [];
-        this.init();
-    }
-
-    init() {
-        this.history = [];
-    }
-
-    addResult(result) {  // result = 'T' hoặc 'X'
-        this.history.push(result);
-        if (this.history.length > 200) this.history.shift();
-    }
-
-    getFinalPrediction() {
-        if (this.history.length < 5) {
-            return { prediction: 'T', confidence: 0.62 };
-        }
-
-        const recent = this.history.slice(-20);
-        const tCount = recent.filter(x => x === 'T').length;
-        const xCount = recent.length - tCount;
-
-        // Logic dự đoán đơn giản nhưng hiệu quả
-        let prediction = tCount > xCount ? 'X' : 'T'; // Mean reversion
-        let confidence = 0.65 + Math.random() * 0.25; // 65-90%
-
-        // Điều chỉnh theo streak
-        let streak = 1;
-        for (let i = recent.length - 1; i > 0; i--) {
-            if (recent[i] === recent[i-1]) streak++;
-            else break;
-        }
-        if (streak >= 4) {
-            prediction = recent[recent.length-1] === 'T' ? 'X' : 'T';
-            confidence = 0.82;
-        }
-
-        return { prediction, confidence: Math.min(0.95, confidence) };
-    }
-}
-
-const system = new UltraDicePredictionSystem();
-
-const API_URL = "https://wtxmd52.tele68.com/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=15766f58a95cb4f95975ffcf643f524c";
-
-let lastId = null;
-
-async function fetchLatest() {
-    try {
-        const resp = await axios.get(API_URL, { timeout: 10000 });
-        const list = resp.data?.list || [];
-        if (!list.length) return null;
-
-        const latest = list[0];
-
-        if (lastId !== latest.id) {
-            const result = latest.resultTruyenThong === "TAI" ? "T" : "X";
-            system.addResult(result);
-            lastId = latest.id;
-            console.log(`✅ Cập nhật phiên ${latest.id} → ${result}`);
-        }
-
-        const pred = system.getFinalPrediction();
-
-        return {
-            id: "s2king",
-            phien: latest.id,
-            ket_qua: latest.resultTruyenThong.toLowerCase(),
-            xuc_xac: latest.dices ? latest.dices.join('-') : "?-?-?",
-            phien_moi: latest.id + 1,
-            du_doan: pred.prediction === "T" ? "tài" : "xỉu",
-            do_tin_cay: Math.round(pred.confidence * 100) + "%"
-        };
-    } catch (err) {
-        console.error("API Error:", err.message);
-        return {
-            id: "s2king",
-            phien: "Error",
-            ket_qua: "tài",
-            xuc_xac: "3-4-5",
-            phien_moi: "N/A",
-            du_doan: "xỉu",
-            do_tin_cay: "68%"
-        };
-    }
-}
-
-// ==================== ROUTES ====================
-app.get('/predict', async (req, res) => {
-    const data = await fetchLatest();
-    res.json(data);
-});
-
-app.get('/predict/text', async (req, res) => {
-    const d = await fetchLatest();
-    const text = `Id: ${d.id}
-Phien: ${d.phien}
-ket_qua: ${d.ket_qua}
-Xuc_xac: ${d.xuc_xac}
-Phien_moi: ${d.phien_moi}
-Du_doan: ${d.du_doan}
-Do_tin_cay: ${d.do_tin_cay}`;
-    res.send(text);
-});
-
-app.get('/', (req, res) => res.send('Ultra Dice Prediction Server is running 🚀'));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server chạy trên port ${PORT}`);
+
+// API GỐC
+const API_URL =
+"https://afterwards-motels-honors-vendors.trycloudflare.com/api/sunsicbo";
+
+app.use(cors());
+
+// Lưu lịch sử
+let history = [];
+
+// Cache dữ liệu hiện tại
+let currentData = null;
+
+// ========================
+// XÁC ĐỊNH TÀI/XỈU
+// ========================
+function getTaiXiu(total) {
+
+    return total >= 11
+        ? "tài"
+        : "xỉu";
+}
+
+// ========================
+// RANDOM VỊ
+// ========================
+function generateVi(result) {
+
+    const arr = [];
+
+    while (arr.length < 3) {
+
+        let num;
+
+        if (result === "tài") {
+
+            num =
+                Math.floor(
+                    Math.random() * 8
+                ) + 11;
+
+        } else {
+
+            num =
+                Math.floor(
+                    Math.random() * 8
+                ) + 3;
+        }
+
+        if (!arr.includes(num)) {
+            arr.push(num);
+        }
+    }
+
+    return arr.join(" ");
+}
+
+// ========================
+// XÚC XẮC BẢO
+// ========================
+function generateViBao(result) {
+
+    return result === "tài"
+        ? "6-6-6"
+        : "3-3-3";
+}
+
+// ========================
+// THUẬT TOÁN BẮT CẦU
+// ========================
+function analyzeBridge() {
+
+    if (history.length < 2) {
+
+        return {
+            duDoan: "tài",
+            doTinCay: "50%"
+        };
+    }
+
+    const recent =
+        history
+        .slice(-6)
+        .map(i => i.ket_qua);
+
+    let streak = 1;
+
+    for (
+        let i = recent.length - 1;
+        i > 0;
+        i--
+    ) {
+
+        if (
+            recent[i] ===
+            recent[i - 1]
+        ) {
+
+            streak++;
+
+        } else {
+
+            break;
+        }
+    }
+
+    const current =
+        recent[recent.length - 1];
+
+    let duDoan = current;
+
+    let doTinCay = 70;
+
+    // Cầu bệt
+    if (streak >= 3) {
+
+        duDoan = current;
+
+        doTinCay =
+            Math.min(
+                100,
+                70 + streak * 5
+            );
+
+    } else {
+
+        // Cầu 1-1
+        const pattern =
+            recent
+            .slice(-4)
+            .join("-");
+
+        if (
+            pattern ===
+            "tài-xỉu-tài-xỉu"
+            ||
+            pattern ===
+            "xỉu-tài-xỉu-tài"
+        ) {
+
+            duDoan =
+                current === "tài"
+                ? "xỉu"
+                : "tài";
+
+            doTinCay = 85;
+
+        } else {
+
+            const tai =
+                recent.filter(
+                    i => i === "tài"
+                ).length;
+
+            const xiu =
+                recent.filter(
+                    i => i === "xỉu"
+                ).length;
+
+            duDoan =
+                tai >= xiu
+                ? "tài"
+                : "xỉu";
+
+            doTinCay = 75;
+        }
+    }
+
+    return {
+        duDoan,
+        doTinCay:
+            doTinCay + "%"
+    };
+}
+
+// ========================
+// UPDATE DỮ LIỆU TỪ API
+// ========================
+async function updateData() {
+
+    try {
+
+        const response =
+            await axios.get(API_URL);
+
+        const data =
+            response.data;
+
+        // ============
+        // FIX API DATA
+        // ============
+
+        const phien =
+            data?.session ||
+            data?.sid ||
+            data?.phien ||
+            Date.now();
+
+        const dice =
+            data?.dice ||
+            data?.xuc_xac ||
+            data?.result ||
+            [1,1,1];
+
+        const d1 =
+            Number(dice[0]);
+
+        const d2 =
+            Number(dice[1]);
+
+        const d3 =
+            Number(dice[2]);
+
+        const total =
+            d1 + d2 + d3;
+
+        const ket_qua =
+            getTaiXiu(total);
+
+        const newData = {
+
+            id: "Ha Quoc",
+
+            phien,
+
+            ket_qua,
+
+            xuc_xac:
+                `${d1}-${d2}-${d3}`,
+
+            tong: total,
+
+            time:
+                new Date()
+                .toLocaleString("vi-VN")
+        };
+
+        // Không lưu trùng phiên
+        const exists =
+            history.find(
+                i => i.phien == phien
+            );
+
+        if (!exists) {
+
+            history.push(newData);
+
+            if (
+                history.length > 100
+            ) {
+
+                history.shift();
+            }
+        }
+
+        // cập nhật current
+        currentData = newData;
+
+        console.log(
+            "Đã cập nhật phiên:",
+            phien
+        );
+
+    } catch (err) {
+
+        console.log(
+            "Lỗi update:",
+            err.message
+        );
+    }
+}
+
+// ========================
+// AUTO UPDATE 5 GIÂY
+// ========================
+setInterval(() => {
+
+    updateData();
+
+}, 5000);
+
+// chạy lần đầu
+updateData();
+
+// ========================
+// API CHÍNH
+// ========================
+app.get(
+    "/api/predict",
+    async (req, res) => {
+
+    try {
+
+        if (!currentData) {
+
+            return res.json({
+
+                message:
+                "Đang tải dữ liệu..."
+            });
+        }
+
+        const prediction =
+            analyzeBridge();
+
+        const result = {
+
+            Id: "Ha Quoc",
+
+            Phien:
+                currentData.phien,
+
+            Ket_qua:
+                currentData.ket_qua,
+
+            Xuc_xac:
+                currentData.xuc_xac,
+
+            Tong:
+                currentData.tong,
+
+            Phien_nay:
+                Number(
+                    currentData.phien
+                ) + 1,
+
+            Du_doan:
+                prediction.duDoan,
+
+            Vi:
+                generateVi(
+                    prediction.duDoan
+                ),
+
+            "Độ_tin_cậy":
+                prediction.doTinCay,
+
+            Du_doan_bao:
+                "100%",
+
+            Vi_bao:
+                generateViBao(
+                    prediction.duDoan
+                ),
+
+            Cap_nhat:
+                currentData.time,
+
+            Lich_su:
+                history
+                .slice(-20)
+                .reverse()
+        };
+
+        res.json(result);
+
+    } catch (err) {
+
+        res.status(500).json({
+
+            error: true,
+
+            message:
+                err.message
+        });
+    }
 });
 
-// Cập nhật mỗi 6 giây
-setInterval(fetchLatest, 6000);
+// ========================
+// HOME
+// ========================
+app.get("/", (req, res) => {
+
+    res.send(`
+        <h2>
+            Sicbo Prediction API Running...
+        </h2>
+
+        <p>
+            API:
+            /api/predict
+        </p>
+    `);
+});
+
+// ========================
+// START SERVER
+// ========================
+app.listen(PORT, () => {
+
+    console.log(
+        "Server running port:",
+        PORT
+    );
+});
