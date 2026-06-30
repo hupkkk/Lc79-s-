@@ -7,13 +7,13 @@ app.use(cors());
 app.use(express.json());
 
 // ========================================================================
-// HỆ THỐNG DỰ ĐOÁN SIÊU CẤP - TÍCH HỢP 8 THUẬT TOÁN + PHÁT HIỆN SCAM
+// HỆ THỐNG DỰ ĐOÁN SIÊU CẤP - 12 THUẬT TOÁN + PHÁT HIỆN SCAM + BẺ CẦU
 // ========================================================================
 class UltraDicePredictionSystem {
     constructor() {
         this.history = [];
         this.lastPrediction = null;
-        this.algoPerformance = {}; // Lưu hiệu suất từng thuật toán
+        this.algoPerformance = {};
         this.init();
     }
 
@@ -24,14 +24,11 @@ class UltraDicePredictionSystem {
 
     addResult(result) {
         this.history.push(result);
-        if (this.history.length > 1000) this.history.shift();
-        // Cập nhật hiệu suất cho từng thuật toán sau mỗi lượt (so sánh dự đoán trước)
+        if (this.history.length > 1500) this.history.shift();
         this.updateAlgoPerformance(result);
     }
 
-    // ------------------ CẬP NHẬT HIỆU SUẤT THUẬT TOÁN ------------------
     updateAlgoPerformance(actual) {
-        // Chỉ cập nhật nếu có dự đoán trước đó
         if (!this.lastPrediction) return;
         const algoNames = Object.keys(this.lastPrediction);
         algoNames.forEach(name => {
@@ -47,14 +44,182 @@ class UltraDicePredictionSystem {
         });
     }
 
-    // -------------------- CÁC THUẬT TOÁN DỰ ĐOÁN ------------------------
+    // -------------------- CÁC THUẬT TOÁN BẺ CẦU (COUNTER-TREND) --------------------
 
-    // 1. Trend Following (theo xu hướng)
+    // 1. Mean Reversion với biên động (mạnh)
+    getMeanReversion() {
+        const len = this.history.length;
+        if (len < 10) return { pred: 'T', conf: 0.5 };
+
+        // Lấy tỷ lệ T trong 5,10,20 phiên gần nhất
+        const rates = {
+            r5: this.history.slice(-5).filter(x => x === 'T').length / 5,
+            r10: this.history.slice(-10).filter(x => x === 'T').length / 10,
+            r20: this.history.slice(-20).filter(x => x === 'T').length / 20
+        };
+        // Tính độ lệch khỏi 0.5
+        const dev5 = Math.abs(rates.r5 - 0.5);
+        const dev10 = Math.abs(rates.r10 - 0.5);
+        const dev20 = Math.abs(rates.r20 - 0.5);
+        const avgDev = (dev5 + dev10 + dev20) / 3;
+
+        // Nếu độ lệch lớn (>0.2) => khả năng đảo chiều
+        let probT = 0.5;
+        if (avgDev > 0.2) {
+            // Dự đoán ngược với xu hướng hiện tại (dựa trên r5)
+            probT = rates.r5 < 0.5 ? 0.7 : 0.3; // bẻ về phía ngược lại
+            const strength = Math.min(0.9, 0.6 + avgDev);
+            return { pred: probT > 0.5 ? 'T' : 'X', conf: strength };
+        }
+        return { pred: 'T', conf: 0.5 };
+    }
+
+    // 2. Fibonacci Retracement (áp dụng cho chuỗi win/loss)
+    getFibonacci() {
+        const len = this.history.length;
+        if (len < 15) return { pred: 'T', conf: 0.5 };
+
+        // Chuyển đổi T/X thành 1/0
+        const series = this.history.map(x => x === 'T' ? 1 : 0);
+        // Tìm các đỉnh và đáy cục bộ (cửa sổ 5)
+        let peaks = [], troughs = [];
+        for (let i = 2; i < series.length - 2; i++) {
+            if (series[i] > series[i-1] && series[i] > series[i+1] &&
+                series[i] > series[i-2] && series[i] > series[i+2]) {
+                peaks.push({ idx: i, val: series[i] });
+            }
+            if (series[i] < series[i-1] && series[i] < series[i+1] &&
+                series[i] < series[i-2] && series[i] < series[i+2]) {
+                troughs.push({ idx: i, val: series[i] });
+            }
+        }
+        if (peaks.length < 2 || troughs.length < 2) return { pred: 'T', conf: 0.5 };
+
+        // Lấy đỉnh và đáy gần nhất
+        const lastPeak = peaks[peaks.length-1];
+        const lastTrough = troughs[troughs.length-1];
+        if (Math.abs(lastPeak.idx - lastTrough.idx) < 3) return { pred: 'T', conf: 0.5 };
+
+        // Tính mức Fib (0.382, 0.5, 0.618) dựa trên biên độ
+        const diff = lastPeak.val - lastTrough.val;
+        const level382 = lastPeak.val - diff * 0.382;
+        const level618 = lastPeak.val - diff * 0.618;
+
+        // Dự đoán dựa vào vị trí hiện tại
+        const current = series[series.length-1];
+        const currentLevel = (current - lastTrough.val) / diff; // vị trí tương đối
+
+        let probT;
+        if (currentLevel > 0.618) {
+            // Đang ở vùng quá mua => bẻ xuống (X)
+            probT = 0.3;
+        } else if (currentLevel < 0.382) {
+            // Đang ở vùng quá bán => bẻ lên (T)
+            probT = 0.7;
+        } else {
+            probT = 0.5;
+        }
+        const conf = 0.6 + 0.2 * Math.abs(probT - 0.5) * 2;
+        return { pred: probT > 0.5 ? 'T' : 'X', conf: Math.min(0.9, conf) };
+    }
+
+    // 3. RSI - Chỉ số sức mạnh tương đối (cho chuỗi nhị phân)
+    getRSI() {
+        const len = this.history.length;
+        if (len < 14) return { pred: 'T', conf: 0.5 };
+
+        // Chuyển thành 1/0, tính RSI 14 phiên
+        const wins = this.history.slice(-14).map(x => x === 'T' ? 1 : 0);
+        const losses = this.history.slice(-14).map(x => x === 'T' ? 0 : 1);
+        const avgWin = wins.reduce((a,b) => a+b, 0) / 14;
+        const avgLoss = losses.reduce((a,b) => a+b, 0) / 14;
+        if (avgLoss === 0) return { pred: 'X', conf: 0.85 }; // toàn thắng => bẻ xuống
+        const rs = avgWin / avgLoss;
+        const rsi = 100 - (100 / (1 + rs));
+
+        // RSI > 70 => quá mua (bẻ xuống), RSI < 30 => quá bán (bẻ lên)
+        let probT;
+        if (rsi > 70) probT = 0.25;
+        else if (rsi < 30) probT = 0.75;
+        else probT = 0.5;
+        const conf = 0.6 + 0.25 * Math.min(1, Math.abs(rsi - 50) / 50);
+        return { pred: probT > 0.5 ? 'T' : 'X', conf: Math.min(0.9, conf) };
+    }
+
+    // 4. Z-score của streak hiện tại
+    getStreakZScore() {
+        const len = this.history.length;
+        if (len < 20) return { pred: 'T', conf: 0.5 };
+
+        // Tính phân phối streak dài nhất trong lịch sử (cửa sổ 50)
+        const window = this.history.slice(-50);
+        let streaks = [];
+        let curr = 1;
+        for (let i = 1; i < window.length; i++) {
+            if (window[i] === window[i-1]) curr++;
+            else {
+                streaks.push(curr);
+                curr = 1;
+            }
+        }
+        streaks.push(curr);
+        const mean = streaks.reduce((a,b) => a+b, 0) / streaks.length;
+        const std = Math.sqrt(streaks.reduce((a,b) => a + Math.pow(b-mean,2), 0) / streaks.length);
+        if (std === 0) return { pred: 'T', conf: 0.5 };
+
+        // Đếm streak hiện tại
+        const last = this.history[this.history.length-1];
+        let currentStreak = 1;
+        for (let i = len-2; i >=0; i--) {
+            if (this.history[i] === last) currentStreak++;
+            else break;
+        }
+        const z = (currentStreak - mean) / std;
+        // Nếu z > 2 => streak quá dài => bẻ
+        if (z > 1.5) {
+            const probT = last === 'T' ? 0.2 : 0.8; // bẻ ngược
+            const conf = Math.min(0.85, 0.6 + (z-1.5)*0.15);
+            return { pred: probT > 0.5 ? 'T' : 'X', conf };
+        }
+        return { pred: 'T', conf: 0.5 };
+    }
+
+    // 5. Gann Swing (phát hiện điểm đảo chiều)
+    getGannSwing() {
+        const len = this.history.length;
+        if (len < 10) return { pred: 'T', conf: 0.5 };
+
+        // Chuyển thành 1/0
+        const series = this.history.map(x => x === 'T' ? 1 : 0);
+        // Tìm các swing high/low cục bộ (cửa sổ 3)
+        let swings = [];
+        for (let i = 2; i < series.length - 2; i++) {
+            if (series[i] > series[i-1] && series[i] > series[i+1]) {
+                swings.push({ idx: i, type: 'high', val: series[i] });
+            } else if (series[i] < series[i-1] && series[i] < series[i+1]) {
+                swings.push({ idx: i, type: 'low', val: series[i] });
+            }
+        }
+        if (swings.length < 3) return { pred: 'T', conf: 0.5 };
+
+        const lastSwing = swings[swings.length-1];
+        const prevSwing = swings[swings.length-2];
+        // Nếu hai swing gần nhất khác loại và cách nhau ít => có thể đảo chiều
+        if (lastSwing.type !== prevSwing.type && (lastSwing.idx - prevSwing.idx) <= 5) {
+            // Dự đoán theo swing type
+            const pred = lastSwing.type === 'high' ? 'X' : 'T'; // bẻ ngược
+            return { pred, conf: 0.75 };
+        }
+        return { pred: 'T', conf: 0.5 };
+    }
+
+    // -------------------- CÁC THUẬT TOÁN THEO CẦU (TREND-FOLLOWING) --------------------
+
+    // 6. Trend Following (cơ bản)
     getTrendFollowing() {
         const len = this.history.length;
         if (len < 5) return { pred: 'T', conf: 0.5 };
 
-        // Xác định xu hướng bằng độ dốc của tỷ lệ T trong các cửa sổ
         const windowSizes = [10, 20, 30];
         let slopes = [];
         windowSizes.forEach(w => {
@@ -67,56 +232,22 @@ class UltraDicePredictionSystem {
             }
         });
         const avgSlope = slopes.reduce((a,b) => a+b, 0) / (slopes.length || 1);
-        // Nếu slope > 0 => xu hướng T tăng, dự đoán T
-        // Nếu slope < 0 => xu hướng X tăng, dự đoán X
-        // Mức độ tin cậy dựa trên độ lớn của slope
-        const probT = 0.5 + avgSlope * 0.5; // clamp
+        const probT = 0.5 + avgSlope * 0.5;
         const pred = probT > 0.5 ? 'T' : 'X';
         const conf = Math.min(0.9, Math.max(0.55, Math.abs(probT - 0.5) * 2 + 0.5));
         return { pred, conf };
     }
 
-    // 2. Counter Trend (bẻ cầu)
-    getCounterTrend() {
-        const len = this.history.length;
-        if (len < 3) return { pred: 'T', conf: 0.5 };
-
-        // Đếm streak hiện tại
-        let streak = 1;
-        const last = this.history[len-1];
-        for (let i = len-2; i >= 0; i--) {
-            if (this.history[i] === last) streak++;
-            else break;
-        }
-
-        // Nếu streak > 3, khả năng đảo chiều tăng
-        let probT;
-        if (last === 'T') {
-            // Nếu đang là T, xác suất X = base + bonus theo streak
-            const base = this.history.filter(x => x === 'X').length / len;
-            probT = 1 - (base + Math.min(0.3, (streak-3) * 0.05));
-        } else {
-            const base = this.history.filter(x => x === 'T').length / len;
-            probT = base + Math.min(0.3, (streak-3) * 0.05);
-        }
-        probT = Math.min(0.95, Math.max(0.05, probT));
-        const pred = probT > 0.5 ? 'T' : 'X';
-        const conf = Math.min(0.85, Math.abs(probT - 0.5) * 2 + 0.5);
-        return { pred, conf };
-    }
-
-    // 3. Pattern Recognition (mẫu lặp 2-3 phiên)
+    // 7. Pattern Recognition (mẫu lặp)
     getPatternRecognition() {
         const len = this.history.length;
         if (len < 6) return { pred: 'T', conf: 0.5 };
 
-        // Tìm các mẫu 3 phiên cuối và xem lịch sử có lặp không
         const last3 = this.history.slice(-3).join('');
         let matches = [];
         for (let i = 0; i <= len - 4; i++) {
             const pattern = this.history.slice(i, i+3).join('');
             if (pattern === last3) {
-                // Dự đoán kết quả tiếp theo sau mẫu này
                 const next = this.history[i+3];
                 matches.push(next);
             }
@@ -131,13 +262,11 @@ class UltraDicePredictionSystem {
         return { pred: 'T', conf: 0.5 };
     }
 
-    // 4. Bayesian Inference (suy luận Bayes)
+    // 8. Bayesian (dùng 2 phiên trước)
     getBayesian() {
         const len = this.history.length;
         if (len < 10) return { pred: 'T', conf: 0.5 };
 
-        // Giả định: kết quả hiện tại phụ thuộc vào 2 phiên trước
-        // Xây dựng bảng xác suất có điều kiện P(curr | prev1, prev2)
         const states = {};
         for (let i = 2; i < len; i++) {
             const key = this.history[i-2] + this.history[i-1];
@@ -154,19 +283,17 @@ class UltraDicePredictionSystem {
         return { pred, conf };
     }
 
-    // 5. Logistic Regression đơn giản (dựa trên các đặc trưng)
+    // 9. Logistic Regression (học đơn giản)
     getLogistic() {
         const len = this.history.length;
         if (len < 20) return { pred: 'T', conf: 0.5 };
 
-        // Đặc trưng: tỷ lệ T trong 5,10,20 phiên gần nhất, streak, độ dốc
         const f5 = this.history.slice(-5).filter(x => x === 'T').length / 5;
         const f10 = this.history.slice(-10).filter(x => x === 'T').length / 10;
         const f20 = this.history.slice(-20).filter(x => x === 'T').length / 20;
         const streak = this.getStreak();
         const slope = (f10 - f20) || 0;
 
-        // Trọng số học được (có thể tối ưu sau)
         const w0 = -0.2, w1 = 0.5, w2 = 0.8, w3 = -0.3, w4 = 0.4;
         const logit = w0 + w1*f5 + w2*f10 + w3*streak + w4*slope;
         const probT = 1 / (1 + Math.exp(-logit));
@@ -186,7 +313,7 @@ class UltraDicePredictionSystem {
         return s;
     }
 
-    // 6. Markov Chain bậc 2
+    // 10. Markov Chain bậc 2
     getMarkovChain2() {
         const len = this.history.length;
         if (len < 10) return { pred: 'T', conf: 0.5 };
@@ -208,99 +335,95 @@ class UltraDicePredictionSystem {
         return { pred, conf };
     }
 
-    // 7. Kiểm tra tính ngẫu nhiên (phát hiện scam)
+    // 11. Phát hiện scam (kiểm tra tính ngẫu nhiên)
     detectScam() {
         const len = this.history.length;
         if (len < 30) return { isScam: false, score: 0, adjustment: 0 };
 
-        // Thống kê tần suất T và X
         const tCount = this.history.filter(x => x === 'T').length;
         const xCount = len - tCount;
         const expected = len / 2;
         const chi2 = Math.pow(tCount - expected, 2) / expected + Math.pow(xCount - expected, 2) / expected;
-        // Chi-square với 1 bậc tự do, ngưỡng 3.84 (p=0.05)
         const isScam = chi2 > 3.84;
 
-        // Kiểm tra phân phối chu kỳ (có quá nhiều mẫu lặp?)
         let repeats = 0;
         for (let i = 1; i < len; i++) {
             if (this.history[i] === this.history[i-1]) repeats++;
         }
         const repeatRate = repeats / (len-1);
-        // Nếu repeatRate quá cao hoặc quá thấp => bất thường
-        const normalRepeat = 0.5; // với random, tỉ lệ lặp là 0.5
-        const diffRepeat = Math.abs(repeatRate - normalRepeat);
-        const scamScore = (chi2 / 10) + diffRepeat * 2; // điểm càng cao càng scam
-
-        // adjustment: nếu scam, giảm độ tin cậy của các thuật toán xu hướng
+        const diffRepeat = Math.abs(repeatRate - 0.5);
+        const scamScore = (chi2 / 10) + diffRepeat * 2;
         let adjustment = 0;
-        if (scamScore > 1.5) {
-            adjustment = -0.2; // giảm tin cậy
-        }
+        if (scamScore > 1.5) adjustment = -0.2;
 
         return { isScam: scamScore > 1.5, score: scamScore, adjustment };
     }
 
-    // 8. Dự đoán từ tổ hợp các thuật toán với trọng số động
+    // -------------------- TỔNG HỢP ENSEMBLE --------------------
+
     getFinalPrediction() {
         if (this.history.length < 5) {
             return { prediction: 'T', confidence: 0.62 };
         }
 
-        // 1. Lấy kết quả từ tất cả các thuật toán
+        // Danh sách tất cả thuật toán
         const algoResults = {
+            // Bẻ cầu (counter)
+            meanRev: this.getMeanReversion(),
+            fibo: this.getFibonacci(),
+            rsi: this.getRSI(),
+            streakZ: this.getStreakZScore(),
+            gann: this.getGannSwing(),
+            // Theo cầu (trend)
             trend: this.getTrendFollowing(),
-            counter: this.getCounterTrend(),
             pattern: this.getPatternRecognition(),
             bayes: this.getBayesian(),
             logistic: this.getLogistic(),
             markov2: this.getMarkovChain2()
         };
 
-        // Lưu lại để cập nhật hiệu suất sau
         this.lastPrediction = algoResults;
 
-        // 2. Kiểm tra scam
+        // Kiểm tra scam
         const scamInfo = this.detectScam();
         const adjustment = scamInfo.adjustment;
 
-        // 3. Tính trọng số cho từng thuật toán dựa trên hiệu suất lịch sử và điều chỉnh scam
+        // Tính trọng số động
         let weights = {};
         let totalWeight = 0;
         const algoNames = Object.keys(algoResults);
         algoNames.forEach(name => {
             let w = 1.0;
+            // Hiệu suất lịch sử
             if (this.algoPerformance[name] && this.algoPerformance[name].total > 5) {
                 const acc = this.algoPerformance[name].correct / this.algoPerformance[name].total;
-                w = Math.max(0.3, Math.min(1.5, acc * 1.5)); // trọng số theo accuracy
+                w = Math.max(0.3, Math.min(1.5, acc * 1.5));
             }
-            // Điều chỉnh nếu scam
-            if (name === 'trend' || name === 'counter') {
+            // Điều chỉnh scam: giảm trọng số các thuật toán theo cầu
+            if (['trend', 'pattern', 'bayes', 'logistic', 'markov2'].includes(name)) {
                 w += adjustment;
             }
-            // Ưu tiên các thuật toán có độ tin cậy cao hiện tại
+            // Ưu tiên các thuật toán bẻ cầu khi có dấu hiệu đảo chiều
             const conf = algoResults[name].conf || 0.5;
-            w = w * (conf / 0.6); // nếu conf > 0.6 thì tăng trọng
+            w = w * (conf / 0.6);
             weights[name] = Math.max(0.2, w);
             totalWeight += weights[name];
         });
 
-        // 4. Tổng hợp có trọng số
+        // Tổng hợp có trọng số
         let probT = 0;
         algoNames.forEach(name => {
             const pred = algoResults[name].pred;
             const w = weights[name] / totalWeight;
             if (pred === 'T') probT += w;
-            // nếu pred X thì không đóng góp vào probT
         });
 
-        // 5. Kết hợp với tỷ lệ tổng thể để tránh bias
+        // Kết hợp với tỷ lệ tổng thể
         const globalRate = this.history.filter(x => x === 'T').length / this.history.length;
         probT = probT * 0.7 + globalRate * 0.3;
 
-        // 6. Quyết định cuối cùng
+        // Quyết định cuối
         const pred = probT > 0.5 ? 'T' : 'X';
-        // Độ tin cậy dựa trên mức độ chênh lệch và độ tin cậy trung bình
         const avgConf = algoNames.reduce((sum, name) => sum + algoResults[name].conf, 0) / algoNames.length;
         const confidence = Math.min(0.95, Math.max(0.6, avgConf + Math.abs(probT - 0.5) * 0.5));
 
@@ -330,8 +453,6 @@ async function fetchLatest() {
         }
 
         const pred = system.getFinalPrediction();
-
-        // Kiểm tra scam để thêm vào kết quả
         const scamInfo = system.detectScam();
         const scamStatus = scamInfo.isScam ? "⚠️ Có dấu hiệu bất thường" : "✅ Bình thường";
 
