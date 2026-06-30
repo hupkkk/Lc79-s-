@@ -8,13 +8,14 @@ app.use(cors());
 app.use(express.json());
 
 // ============================================================
-// THUẬT TOÁN HOÀNG VIP WIN - BẢN DỊCH JAVASCRIPT
+// THUẬT TOÁN HOÀNG VIP WIN - BẢN DỊCH JAVASCRIPT (CỐT LÕI)
 // ============================================================
 class KhongGianHoangVip {
     constructor() {
         this.soChieu = 13;
         this.hangSoVip = Math.pow(Math.PI, Math.E) * Math.pow(1.618033988749895, 13);
         this.maTranCoSo = this._taoMaTranGoc();
+        this.lichSuHash = [];
     }
 
     _taoMaTranGoc() {
@@ -98,7 +99,6 @@ class DuDoanHoangVip {
         return hashMoi.join('').slice(0, 32);
     }
 
-    // Thêm hàm cập nhật mô hình với dữ liệu mới
     capNhatMoHinh(hashList) {
         for (let i = 0; i < hashList.length - 1; i++) {
             const dacTrungHienTai = this.trichXuatDacTrung(hashList[i]);
@@ -110,88 +110,42 @@ class DuDoanHoangVip {
     }
 }
 
-// Tạo instance dùng chung
+// Tạo instance duy nhất cho toàn hệ thống
 const duDoanHoang = new DuDoanHoangVip();
 
 // ============================================================
-// HỆ THỐNG DỰ ĐOÁN TÀI/XỈU (CÓ TÍCH HỢP HOÀNG VIP)
+// HỆ THỐNG DỰ ĐOÁN DỰA TRÊN HOÀNG VIP + CÁC THUẬT TOÁN MỚI
 // ============================================================
-class SmartDicePredictor {
+class PredictorHoangVip {
     constructor() {
         this.history = [];
         this.predictions = [];
-        this.algoStats = {};
-        this.algoWeights = {};
-        this.initAlgos();
-        // Khởi tạo dữ liệu cho Hoàng VIP với vài hash mẫu
+        // Khởi tạo một số hash mẫu cho Hoàng VIP học
         this._initHoangVip();
     }
 
     _initHoangVip() {
-        // Tạo một số hash mẫu để huấn luyện sơ bộ
-        const mau = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
+        // Tạo dữ liệu giả để huấn luyện ban đầu
+        const mau = [];
+        for (let i = 0; i < 100; i++) {
+            const s = crypto.createHash('md5').update(i.toString()).digest('hex');
+            mau.push(s);
+        }
         duDoanHoang.capNhatMoHinh(mau);
-    }
-
-    initAlgos() {
-        this.algos = {
-            frequency: { name: 'Tần suất', weight: 1.0 },
-            streak: { name: 'Streak', weight: 1.2 },
-            pattern: { name: 'Mẫu lặp', weight: 1.0 },
-            markov1: { name: 'Markov 1', weight: 1.1 },
-            markov2: { name: 'Markov 2', weight: 1.0 },
-            markov3: { name: 'Markov 3', weight: 0.9 },
-            diceSum: { name: 'Tổng xúc xắc', weight: 1.0 },
-            md5hash: { name: 'MD5 1', weight: 0.8 },
-            md5hash2: { name: 'MD5 2', weight: 0.8 },
-            md5hash3: { name: 'MD5 3', weight: 0.8 },
-            meanRev: { name: 'Mean Reversion', weight: 1.3 },
-            logistic: { name: 'Logistic', weight: 1.1 },
-            hoangGay: { name: 'Hoàng VIP', weight: 1.5 }  // Thuật toán mới
-        };
-        Object.keys(this.algos).forEach(key => {
-            this.algoStats[key] = { total: 0, correct: 0 };
-            this.algoWeights[key] = this.algos[key].weight;
-        });
     }
 
     addResult(phienId, result, dices) {
         const sum = dices ? dices.reduce((a,b) => a+b, 0) : 0;
         this.history.push({ id: phienId, result, dices: dices || [], sum, timestamp: Date.now() });
-        this.updatePredictionAccuracy(phienId, result);
-        this.updateWeights();
-        if (this.history.length > 20000) this.history = this.history.slice(-10000);
         // Cập nhật mô hình Hoàng VIP với hash của phiên mới
         const hashStr = crypto.createHash('md5').update(phienId.toString() + result + sum).digest('hex');
-        duDoanHoang.capNhatMoHinh([hashStr]);
-    }
-
-    updatePredictionAccuracy(phienId, actual) {
-        const pred = this.predictions.find(p => p.id === phienId);
-        if (pred) {
-            pred.actual = actual;
-            const correct = pred.predicted === actual ? 1 : 0;
-            if (pred.algoWeights) {
-                Object.keys(pred.algoWeights).forEach(algo => {
-                    if (this.algoStats[algo]) {
-                        this.algoStats[algo].total += 1;
-                        if (correct) this.algoStats[algo].correct += 1;
-                    }
-                });
-            }
-            pred.correct = correct;
-        }
-    }
-
-    updateWeights() {
-        if (this.predictions.length < 5) return;
-        Object.keys(this.algoStats).forEach(algo => {
-            const s = this.algoStats[algo];
-            if (s.total > 0) {
-                let newW = (s.correct / s.total) * 1.6;
-                this.algoWeights[algo] = Math.min(2.2, Math.max(0.3, newW));
-            }
-        });
+        // Cập nhật với lịch sử gần đây
+        const recentHashes = this.history.slice(-10).map(h => 
+            crypto.createHash('md5').update(h.id.toString() + h.result + h.sum).digest('hex')
+        );
+        duDoanHoang.capNhatMoHinh(recentHashes);
+        // Giới hạn lịch sử
+        if (this.history.length > 20000) this.history = this.history.slice(-10000);
     }
 
     getCurrentStreak() {
@@ -205,20 +159,17 @@ class SmartDicePredictor {
         return streak;
     }
 
-    // -------------------- THUẬT TOÁN HOÀNG VIP --------------------
-    predictHoangGay() {
+    // ==================== THUẬT TOÁN HOÀNG VIP ====================
+    predictHoangVip() {
         if (this.history.length < 2) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ dữ liệu' };
         
-        // Lấy một vài hash từ lịch sử gần đây
         const recent = this.history.slice(-5);
         const hashList = recent.map(h => {
             const data = h.id + h.result + (h.sum || 0);
             return crypto.createHash('md5').update(data).digest('hex');
         });
-        // Dùng thuật toán Hoàng VIP để dự đoán hash tiếp theo
         const hashHienTai = hashList[hashList.length-1] || '0'.repeat(32);
         const duDoanHash = duDoanHoang.duDoanHashTiepTheo(hashHienTai, 3);
-        // Từ hash dự đoán, lấy giá trị để suy T/X
         if (duDoanHash.length > 0) {
             const firstHash = duDoanHash[0];
             // Lấy tổng các chữ số hex
@@ -234,37 +185,104 @@ class SmartDicePredictor {
         return { pred: 'T', conf: 0.5, detail: 'Hoàng VIP không dự đoán được' };
     }
 
-    // -------------------- CÁC HÀM KHÁC (giữ nguyên) --------------------
-    predictFrequency() {
-        const len = this.history.length;
-        if (len < 5) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        const t5 = this.history.slice(-5).filter(e => e.result === 'T').length / 5;
-        const pred = t5 > 0.5 ? 'T' : 'X';
-        return { pred, conf: 0.55 + Math.abs(t5-0.5)*0.8, detail: `Tần suất ${t5.toFixed(2)}` };
-    }
-
-    predictStreak() {
+    // ==================== THUẬT TOÁN BẺ CẦU 1: Streak + Đảo chiều ====================
+    predictBreakStreak() {
         const streak = this.getCurrentStreak();
-        if (streak < 2) return { pred: 'T', conf: 0.5, detail: 'Streak ngắn' };
+        if (streak < 3) return { pred: 'T', conf: 0.5, detail: 'Streak ngắn, chưa bẻ' };
         const last = this.history[this.history.length-1].result;
-        if (streak >= 4) {
+        if (streak >= 5) {
             const pred = last === 'T' ? 'X' : 'T';
-            return { pred, conf: 0.7 + (streak-4)*0.08, detail: `Streak ${streak} → Bẻ` };
+            return { pred, conf: 0.8 + (streak-5)*0.03, detail: `Bẻ cầu mạnh (Streak ${streak})` };
+        } else if (streak >= 4) {
+            const pred = last === 'T' ? 'X' : 'T';
+            return { pred, conf: 0.7, detail: `Bẻ cầu trung bình (Streak ${streak})` };
         }
-        return { pred: last, conf: 0.6 + (streak-1)*0.05, detail: `Streak ${streak} → Theo` };
+        return { pred: last, conf: 0.6, detail: `Theo cầu (Streak ${streak})` };
     }
 
-    predictMeanRev() {
+    // ==================== THUẬT TOÁN BẺ CẦU 2: Mean Reversion ====================
+    predictMeanReversion() {
         const len = this.history.length;
-        if (len < 10) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        const r = this.history.slice(-10).filter(e => e.result === 'T').length / 10;
-        if (Math.abs(r - 0.5) > 0.3) {
-            const pred = r > 0.5 ? 'X' : 'T';
-            return { pred, conf: 0.68 + Math.abs(r-0.5)*0.6, detail: `Lệch ${r.toFixed(2)} → Bẻ` };
+        if (len < 10) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ dữ liệu' };
+        const r10 = this.history.slice(-10).filter(e => e.result === 'T').length / 10;
+        if (r10 >= 0.7) {
+            return { pred: 'X', conf: 0.75, detail: `Tỷ lệ T quá cao (${r10.toFixed(2)}) → Bẻ xuống` };
+        } else if (r10 <= 0.3) {
+            return { pred: 'T', conf: 0.75, detail: `Tỷ lệ T quá thấp (${r10.toFixed(2)}) → Bẻ lên` };
         }
-        return { pred: 'T', conf: 0.52, detail: 'Cân bằng' };
+        return { pred: 'T', conf: 0.5, detail: 'Tỷ lệ cân bằng' };
     }
 
+    // ==================== THUẬT TOÁN BẺ CẦU 3: Fibonacci Retracement ====================
+    predictFibonacci() {
+        const len = this.history.length;
+        if (len < 15) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ dữ liệu' };
+        // Chuyển thành chuỗi số 1/0
+        const series = this.history.map(h => h.result === 'T' ? 1 : 0);
+        // Tìm các đỉnh và đáy cục bộ (cửa sổ 5)
+        let peaks = [], troughs = [];
+        for (let i = 3; i < series.length - 3; i++) {
+            if (series[i] > series[i-1] && series[i] > series[i+1] &&
+                series[i] > series[i-2] && series[i] > series[i+2]) {
+                peaks.push({ idx: i, val: series[i] });
+            }
+            if (series[i] < series[i-1] && series[i] < series[i+1] &&
+                series[i] < series[i-2] && series[i] < series[i+2]) {
+                troughs.push({ idx: i, val: series[i] });
+            }
+        }
+        if (peaks.length < 2 || troughs.length < 2) return { pred: 'T', conf: 0.5, detail: 'Không đủ điểm' };
+        const lastPeak = peaks[peaks.length-1];
+        const lastTrough = troughs[troughs.length-1];
+        const diff = lastPeak.val - lastTrough.val;
+        if (diff === 0) return { pred: 'T', conf: 0.5, detail: 'Biên độ bằng 0' };
+        const current = series[series.length-1];
+        const currentLevel = (current - lastTrough.val) / diff;
+        // Mức Fibonacci 0.618 và 0.382
+        if (currentLevel > 0.618) {
+            return { pred: 'X', conf: 0.72, detail: `Vùng quá mua (${currentLevel.toFixed(2)}) → Bẻ xuống` };
+        } else if (currentLevel < 0.382) {
+            return { pred: 'T', conf: 0.72, detail: `Vùng quá bán (${currentLevel.toFixed(2)}) → Bẻ lên` };
+        }
+        return { pred: 'T', conf: 0.5, detail: 'Trong vùng trung tính' };
+    }
+
+    // ==================== THUẬT TOÁN BẺ CẦU 4: RSI ====================
+    predictRSI() {
+        const len = this.history.length;
+        if (len < 14) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ dữ liệu' };
+        // Chuyển thành 1/0
+        const wins = this.history.slice(-14).map(h => h.result === 'T' ? 1 : 0);
+        const losses = wins.map(v => 1 - v);
+        const avgWin = wins.reduce((a,b) => a+b, 0) / 14;
+        const avgLoss = losses.reduce((a,b) => a+b, 0) / 14;
+        if (avgLoss === 0) return { pred: 'X', conf: 0.8, detail: 'RSI quá cao (toàn T) → Bẻ xuống' };
+        const rs = avgWin / avgLoss;
+        const rsi = 100 - (100 / (1 + rs));
+        if (rsi > 70) {
+            return { pred: 'X', conf: 0.75, detail: `RSI ${rsi.toFixed(1)} >70 → Bẻ xuống` };
+        } else if (rsi < 30) {
+            return { pred: 'T', conf: 0.75, detail: `RSI ${rsi.toFixed(1)} <30 → Bẻ lên` };
+        }
+        return { pred: 'T', conf: 0.5, detail: `RSI ${rsi.toFixed(1)} trung tính` };
+    }
+
+    // ==================== THUẬT TOÁN THEO CẦU 1: Trend Following ====================
+    predictTrend() {
+        const len = this.history.length;
+        if (len < 10) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ dữ liệu' };
+        const r5 = this.history.slice(-5).filter(e => e.result === 'T').length / 5;
+        const r10 = this.history.slice(-10).filter(e => e.result === 'T').length / 10;
+        const slope = r5 - r10;
+        if (slope > 0.1) {
+            return { pred: 'T', conf: 0.65, detail: `Xu hướng lên (${slope.toFixed(2)}) → Theo T` };
+        } else if (slope < -0.1) {
+            return { pred: 'X', conf: 0.65, detail: `Xu hướng xuống (${slope.toFixed(2)}) → Theo X` };
+        }
+        return { pred: 'T', conf: 0.5, detail: 'Xu hướng đi ngang' };
+    }
+
+    // ==================== THUẬT TOÁN THEO CẦU 2: Pattern ====================
     predictPattern() {
         const len = this.history.length;
         if (len < 6) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
@@ -281,13 +299,14 @@ class SmartDicePredictor {
             const conf = Math.min(0.9, Math.abs(probT-0.5)*2 + 0.5);
             return { pred, conf, detail: `Mẫu ${last3}: T=${t}/${matches.length}` };
         }
-        return { pred: 'T', conf: 0.5, detail: 'Không mẫu' };
+        return { pred: 'T', conf: 0.5, detail: 'Không tìm thấy mẫu' };
     }
 
-    predictMarkov1() {
+    // ==================== THUẬT TOÁN THEO CẦU 3: Markov Chain ====================
+    predictMarkov() {
         const len = this.history.length;
         if (len < 10) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        let tt=0,tx=0,xt=0,xx=0;
+        let tt=0, tx=0, xt=0, xx=0;
         for (let i=1; i<len; i++) {
             const p = this.history[i-1].result, c = this.history[i].result;
             if (p==='T' && c==='T') tt++; else if (p==='T' && c==='X') tx++;
@@ -307,163 +326,82 @@ class SmartDicePredictor {
         return { pred, conf, detail: `P(T|${last})=${probT.toFixed(3)}` };
     }
 
-    predictMarkov2() {
-        const len = this.history.length;
-        if (len < 15) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        const states = new Map();
-        for (let i=2; i<len; i++) {
-            const key = this.history[i-2].result + this.history[i-1].result;
-            const next = this.history[i].result;
-            if (!states.has(key)) states.set(key, {T:0, X:0});
-            states.get(key)[next] += 1;
-        }
-        const lastKey = this.history[len-2].result + this.history[len-1].result;
-        const counts = states.get(lastKey);
-        if (!counts) return { pred: 'T', conf: 0.5, detail: 'Không dữ liệu' };
-        const probT = counts.T / (counts.T + counts.X);
-        const pred = probT > 0.5 ? 'T' : 'X';
-        const conf = Math.min(0.9, Math.abs(probT-0.5)*2 + 0.5);
-        return { pred, conf, detail: `P(T|${lastKey})=${probT.toFixed(3)}` };
-    }
-
-    predictMarkov3() {
-        const len = this.history.length;
-        if (len < 20) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        const states = new Map();
-        for (let i=3; i<len; i++) {
-            const key = this.history[i-3].result + this.history[i-2].result + this.history[i-1].result;
-            const next = this.history[i].result;
-            if (!states.has(key)) states.set(key, {T:0, X:0});
-            states.get(key)[next] += 1;
-        }
-        const lastKey = this.history[len-3].result + this.history[len-2].result + this.history[len-1].result;
-        const counts = states.get(lastKey);
-        if (!counts) return { pred: 'T', conf: 0.5, detail: 'Không dữ liệu' };
-        const probT = counts.T / (counts.T + counts.X);
-        const pred = probT > 0.5 ? 'T' : 'X';
-        const conf = Math.min(0.9, Math.abs(probT-0.5)*2 + 0.5);
-        return { pred, conf, detail: `P(T|${lastKey})=${probT.toFixed(3)}` };
-    }
-
-    predictDiceSum() {
-        const len = this.history.length;
-        if (len < 3) return { pred: 'T', conf: 0.5, detail: 'Chưa có dữ liệu xúc xắc' };
-        const last = this.history[len-1];
-        if (last.dices && last.dices.length === 3) {
-            const sum = last.sum;
-            const pred = sum >= 11 ? 'T' : 'X';
-            const conf = 0.7 + Math.min(0.25, Math.abs(sum-10.5)/5);
-            return { pred, conf, detail: `Tổng hiện tại = ${sum}` };
-        } else {
-            const sums = this.history.slice(-5).filter(e => e.dices.length===3).map(e => e.sum);
-            if (sums.length === 0) return { pred: 'T', conf: 0.5, detail: 'Không có dữ liệu' };
-            const avg = sums.reduce((a,b) => a+b, 0) / sums.length;
-            const pred = avg >= 10.5 ? 'T' : 'X';
-            const conf = 0.6 + Math.min(0.3, Math.abs(avg-10.5)/5);
-            return { pred, conf, detail: `Trung bình tổng = ${avg.toFixed(1)}` };
-        }
-    }
-
-    predictMD5() {
-        if (this.history.length < 2) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        const lastId = this.history[this.history.length-1].id;
-        const prev = this.history[this.history.length-2].result;
-        const data = lastId + prev + Date.now().toString().slice(-4);
-        const hash = crypto.createHash('md5').update(data).digest('hex');
-        const val = parseInt(hash[0], 16);
-        const probT = 0.5 + (val - 7.5) / 15 * 0.32;
-        return { pred: probT > 0.5 ? 'T' : 'X', conf: 0.55 + Math.abs(probT-0.5)*1.4, detail: `MD5-1 ${hash.slice(0,6)}` };
-    }
-
-    predictMD5_2() {
-        if (this.history.length < 2) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        const last = this.history[this.history.length-1];
-        const streak = this.getCurrentStreak();
-        const data = `${last.id}${last.sum || 0}${streak}${Date.now()}`;
-        const hash = crypto.createHash('md5').update(data).digest('hex');
-        const val = parseInt(hash.slice(0,4), 16) % 100;
-        const probT = 0.5 + (val - 50) / 60 * 0.28;
-        return { pred: probT > 0.5 ? 'T' : 'X', conf: 0.54 + Math.abs(probT-0.5)*1.3, detail: `MD5-2 ${val}` };
-    }
-
-    predictMD5_3() {
-        if (this.history.length < 1) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        const id = this.history[this.history.length-1].id.toString();
-        const h1 = crypto.createHash('md5').update(id + 'seedx').digest('hex');
-        const h2 = crypto.createHash('md5').update(Date.now().toString() + id).digest('hex');
-        const val = (parseInt(h1[3],16) + parseInt(h2[7],16)) % 16;
-        const probT = 0.5 + (val - 8) / 16 * 0.33;
-        return { pred: probT > 0.5 ? 'T' : 'X', conf: 0.56 + Math.abs(probT-0.5)*1.5, detail: `MD5-3 ${val}` };
-    }
-
-    predictLogistic() {
-        const len = this.history.length;
-        if (len < 20) return { pred: 'T', conf: 0.5, detail: 'Chưa đủ' };
-        const f5 = this.history.slice(-5).filter(e=>e.result==='T').length / 5;
-        const f10 = this.history.slice(-10).filter(e=>e.result==='T').length / 10;
-        const f20 = this.history.slice(-20).filter(e=>e.result==='T').length / 20;
-        const streak = this.getCurrentStreak();
-        const slope = (f10 - f20);
-        const logit = -0.2 + 0.5*f5 + 0.8*f10 - 0.3*streak + 0.4*slope;
-        const probT = 1 / (1 + Math.exp(-logit));
-        const pred = probT > 0.5 ? 'T' : 'X';
-        const conf = Math.min(0.9, Math.abs(probT-0.5)*2 + 0.5);
-        return { pred, conf, detail: `Logit probT=${probT.toFixed(3)}` };
-    }
-
-    // -------------------- KẾT HỢP CÁC THUẬT TOÁN --------------------
+    // ==================== TỔNG HỢP TẤT CẢ THUẬT TOÁN ====================
     getCombinedPrediction() {
-        if (this.history.length < 5) return { prediction: 'T', confidence: 0.5, reason: 'Chưa đủ dữ liệu' };
+        if (this.history.length < 5) {
+            return { prediction: 'T', confidence: 0.5, reason: 'Chưa đủ dữ liệu' };
+        }
 
+        // Lấy dự đoán từ tất cả các thuật toán
         const results = {
-            frequency: this.predictFrequency(),
-            streak: this.predictStreak(),
+            hoangVip: this.predictHoangVip(),
+            breakStreak: this.predictBreakStreak(),
+            meanRev: this.predictMeanReversion(),
+            fibo: this.predictFibonacci(),
+            rsi: this.predictRSI(),
+            trend: this.predictTrend(),
             pattern: this.predictPattern(),
-            markov1: this.predictMarkov1(),
-            markov2: this.predictMarkov2(),
-            markov3: this.predictMarkov3(),
-            diceSum: this.predictDiceSum(),
-            md5hash: this.predictMD5(),
-            md5hash2: this.predictMD5_2(),
-            md5hash3: this.predictMD5_3(),
-            meanRev: this.predictMeanRev(),
-            logistic: this.predictLogistic(),
-            hoangGay: this.predictHoangGay()   // Thêm thuật toán Hoàng VIP
+            markov: this.predictMarkov()
+        };
+
+        // Trọng số cố định cho từng thuật toán (có thể điều chỉnh sau)
+        const weights = {
+            hoangVip: 1.8,      // Ưu tiên Hoàng VIP cao hơn
+            breakStreak: 1.5,
+            meanRev: 1.4,
+            fibo: 1.3,
+            rsi: 1.3,
+            trend: 1.0,
+            pattern: 1.1,
+            markov: 1.0
         };
 
         let totalWeight = 0, weightedProbT = 0;
         let reasons = [];
+        let breakCount = 0; // Đếm số thuật toán bẻ cầu
 
         Object.keys(results).forEach(key => {
             const r = results[key];
-            const w = this.algoWeights[key] || 1;
-            weightedProbT += (r.pred === 'T' ? 1 : 0) * w * r.conf;
-            totalWeight += w * r.conf;
-            reasons.push(`${this.algos[key]?.name || key}: ${r.pred}(${r.conf.toFixed(2)})`);
+            const w = weights[key] || 1.0;
+            const predVal = r.pred === 'T' ? 1 : 0;
+            // Tính probT dựa trên dự đoán và độ tin cậy
+            const probT = predVal * r.conf + (1 - predVal) * (1 - r.conf);
+            weightedProbT += probT * w;
+            totalWeight += w;
+            reasons.push(`${key}: ${r.pred}(${r.conf.toFixed(2)})`);
+            // Nếu là thuật toán bẻ cầu và dự đoán khác với kết quả gần nhất?
+            if (['breakStreak','meanRev','fibo','rsi'].includes(key) && r.pred !== this.history[this.history.length-1].result) {
+                breakCount++;
+            }
         });
 
         let probT = totalWeight > 0 ? weightedProbT / totalWeight : 0.5;
         let finalPred = probT > 0.5 ? 'T' : 'X';
         let confidence = Math.min(0.93, Math.max(0.6, Math.abs(probT-0.5)*2 + 0.55));
 
-        // === LOGIC BẺ CẦU MẠNH (dựa trên Hoàng VIP + MD5) ===
-        const streak = this.getCurrentStreak();
-        const last = this.history[this.history.length-1]?.result || 'T';
-        const md5BreakCount = [results.md5hash, results.md5hash2, results.md5hash3, results.hoangGay]
-            .filter(r => r && r.pred !== last).length;
-
-        let strategy = '';
-        if (streak >= 5 || (streak >= 4 && md5BreakCount >= 3)) {
-            finalPred = last === 'T' ? 'X' : 'T';
-            confidence = Math.min(0.92, 0.7 + streak * 0.05);
-            strategy = `🔴 BẺ CẦU MẠNH (Streak ${streak} + ${md5BreakCount}/4 đồng thuận)`;
-        } else if (streak >= 4 && md5BreakCount >= 2) {
-            finalPred = last === 'T' ? 'X' : 'T';
-            confidence = Math.min(0.88, 0.65 + streak * 0.04);
-            strategy = `🟠 BẺ CẦU VỪA (Streak ${streak} + MD5)`;
-        } else {
-            strategy = `🟢 THEO CẦU HOẶC CÂN BẰNG`;
+        // Logic bẻ cầu bổ sung dựa trên số lượng thuật toán bẻ cầu đồng thuận
+        const lastResult = this.history[this.history.length-1].result;
+        if (breakCount >= 3) {
+            // Nếu có >= 3 thuật toán bẻ cầu cùng hướng, ưu tiên bẻ
+            const breakPred = lastResult === 'T' ? 'X' : 'T';
+            // Nếu dự đoán tổng hợp khác với breakPred, tăng xác suất cho breakPred
+            if (finalPred !== breakPred) {
+                // Điều chỉnh probT về phía breakPred
+                const adjustment = 0.15 * (breakCount - 2);
+                if (breakPred === 'T') {
+                    probT = Math.min(0.85, probT + adjustment);
+                } else {
+                    probT = Math.max(0.15, probT - adjustment);
+                }
+                finalPred = probT > 0.5 ? 'T' : 'X';
+                confidence = Math.min(0.9, confidence + 0.05);
+            }
         }
+
+        // Lý do chi tiết
+        const strategy = (breakCount >= 3) ? `🔴 BẺ CẦU MẠNH (${breakCount}/4 thuật toán bẻ đồng thuận)` :
+                         (breakCount >= 2) ? `🟠 BẺ CẦU VỪA (${breakCount}/4)` :
+                         `🟢 THEO CẦU HOẶC CÂN BẰNG`;
 
         return {
             prediction: finalPred,
@@ -486,18 +424,28 @@ class SmartDicePredictor {
         };
         this.predictions.push(predEntry);
         if (this.predictions.length > 5000) this.predictions = this.predictions.slice(-4000);
+        // Cập nhật độ chính xác sau mỗi lần dự đoán (sẽ được cập nhật khi có kết quả thực)
         return predEntry;
+    }
+
+    // Cập nhật kết quả thực tế và tính độ chính xác
+    updatePredictionAccuracy(phienId, actual) {
+        const pred = this.predictions.find(p => p.id === phienId);
+        if (pred) {
+            pred.actual = actual;
+            pred.correct = (pred.predicted === actual) ? 1 : 0;
+        }
     }
 
     getStats() {
         const completed = this.predictions.filter(p => p.actual !== null);
-        const correct = completed.filter(p => p.predicted === p.actual).length;
+        const correct = completed.filter(p => p.correct === 1).length;
         return {
             totalPredictions: completed.length,
             correct,
             accuracy: completed.length ? correct / completed.length : 0,
             historyLength: this.history.length,
-            algoStats: this.algoStats
+            recentPredictions: this.predictions.slice(-10).map(p => ({id: p.id, pred: p.predicted, actual: p.actual, correct: p.correct}))
         };
     }
 }
@@ -505,7 +453,7 @@ class SmartDicePredictor {
 // ============================================================
 // SERVER
 // ============================================================
-const predictor = new SmartDicePredictor();
+const predictor = new PredictorHoangVip();
 
 const API_URL = "https://wtxmd52.tele68.com/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=15766f58a95cb4f95975ffcf643f524c";
 let lastId = null;
@@ -526,7 +474,15 @@ async function updateDataAndPredict() {
             let result = resultStr ? (resultStr.toUpperCase() === "TAI" ? "T" : "X") 
                         : (dices.length === 3 ? (dices.reduce((a,b)=>a+b,0) >= 11 ? "T" : "X") : "T");
 
+            // Cập nhật kết quả thực cho dự đoán trước đó (nếu có)
+            if (lastId !== null) {
+                predictor.updatePredictionAccuracy(phienId, result);
+            }
+
+            // Thêm kết quả mới vào lịch sử
             predictor.addResult(phienId, result, dices);
+            
+            // Tạo dự đoán cho phiên tiếp theo
             const predEntry = predictor.makePrediction(phienId + 1);
 
             currentPrediction = {
@@ -543,14 +499,16 @@ async function updateDataAndPredict() {
             };
 
             lastId = phienId;
-            console.log(`[${new Date().toLocaleTimeString()}] Phiên ${phienId} → ${result} | DD: ${predEntry.predicted}`);
+            console.log(`[${new Date().toLocaleTimeString()}] Phiên ${phienId} → ${result} | Dự đoán: ${predEntry.predicted} (${(predEntry.confidence*100).toFixed(1)}%)`);
         }
     } catch (e) {
         console.error("API Error:", e.message);
     }
 }
 
+// Chạy lần đầu
 updateDataAndPredict();
+// Cập nhật mỗi 6 giây
 setInterval(updateDataAndPredict, 6000);
 
 // Routes
@@ -580,7 +538,7 @@ Ty le dung: ${(d.thong_ke.accuracy * 100).toFixed(1)}%`;
 
 app.get('/stats', (req, res) => res.json(predictor.getStats()));
 
-app.get('/', (req, res) => res.send('🚀 Smart Tài Xỉu Server - Tích hợp Hoàng VIP MD5'));
+app.get('/', (req, res) => res.send('🚀 Hoàng VIP MD5 Predictor - Bẻ cầu mạnh mẽ'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server chạy port ${PORT}`));
